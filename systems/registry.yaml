@@ -260,6 +260,46 @@ songgen:
       init_kwargs:
         lyrics_config: "4o-v00"
 
+levo-base:
+  display_name: "LeVo Base"
+  description: "LeVo for song generation with lyrics conditioning."
+  organization: "Tencent AI Lab"
+  access: "OPEN"
+  supports_lyrics: true
+  model_type: "Codec Language Model"
+  training_data:
+    type: "Unspecified"
+  links:
+    paper: "https://www.arxiv.org/abs/2506.07520"
+    code: "https://github.com/tencent-ailab/SongGeneration"
+  variants:
+    "initial":
+      module_name: "levo"
+      class_name: "SongGeneration"
+      init_kwargs:
+        ckpt_path: "/levo/songgeneration_base_new"
+        max_duration: 30.0
+
+levo-large:
+  display_name: "LeVo Large"
+  description: "LeVo for song generation with lyrics conditioning."
+  organization: "Tencent AI Lab"
+  access: "OPEN"
+  supports_lyrics: true
+  model_type: "Codec Language Model"
+  training_data:
+    type: "Unspecified"
+  links:
+    paper: "https://www.arxiv.org/abs/2506.07520"
+    code: "https://github.com/tencent-ailab/SongGeneration"
+  variants:
+    "initial":
+      module_name: "levo"
+      class_name: "SongGeneration"
+      init_kwargs:
+        ckpt_path: "/levo/songgeneration_large"
+        max_duration: 30.0
+
 
 # =============================================================================
 # Proprietary, instrumental-only

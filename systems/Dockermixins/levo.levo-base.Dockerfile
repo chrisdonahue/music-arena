@@ -1,0 +1,1 @@
+RUN huggingface-cli download lglg666/SongGeneration-base-new --local-dir ./songgeneration_base_new
