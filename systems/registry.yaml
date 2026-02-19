@@ -344,6 +344,23 @@ riffusion-fuzz-1-1:
       init_kwargs:
         api_tag: "FUZZ 1.1"
 
+riffusion-fuzz-2-0:
+  display_name: "Riffusion FUZZ v2.0"
+  description: "The latest version of FUZZ."
+  organization: "Producer.ai"
+  access: "PROPRIETARY"
+  supports_lyrics: true
+  links:
+    home: "https://www.producer.ai"
+  variants:
+    "initial":
+      module_name: "riffusion"
+      class_name: "Riffusion"
+      secrets:
+        - "RIFFUSION_API_KEY"
+      init_kwargs:
+        api_tag: "FUZZ-2.0"
+
 sonauto-v2-2:
   display_name: "Sonauto v2.2"
   description: "An unlimited free AI music generator with lyrics."
