@@ -11,14 +11,13 @@ The leaderboard is computed transparently from the public [Music Arena Dataset](
 
 For the full scoring implementation, see [`ma_leaderboard/scoring.py`](ma_leaderboard/scoring.py).
 
-## Setup
+## Setup (Docker)
+
+The leaderboard runs inside Docker, like all other Music Arena components.
 
 ```bash
-# Install the leaderboard component
-pip install -e components/leaderboard/
-
-# For GCP data download (maintainers only):
-pip install -e "components/leaderboard/[gcp]"
+# Build and run any leaderboard command:
+ma-comp leaderboard <command> [options]
 ```
 
 ## Reproduce the Leaderboard (Anyone)
@@ -27,7 +26,7 @@ No credentials required — uses only public HuggingFace data:
 
 ```bash
 # Generate leaderboard from public HuggingFace dataset
-ma-leaderboard leaderboard --output-dir results
+ma-comp leaderboard leaderboard --output-dir results
 
 # View the generated files
 ls results/leaderboards/   # TSV tables
@@ -39,100 +38,81 @@ ls results/plots/           # PNG scatter plots
 The full pipeline can be run with a single command:
 
 ```bash
-bash components/leaderboard/ma_leaderboard/monthly_update.sh
+bash components/leaderboard/monthly_update.sh
 ```
 
 This will download new data, preprocess, push to HuggingFace, generate the leaderboard, and update the frontend.
 
-Alternatively, each step can be run individually:
+### Secrets
 
-### Step 1: Download new battle data from GCP
+GCP authentication uses the same `GCP_BUCKET_SERVICE_ACCOUNT` service account JSON as the gateway component. Bucket names are managed via `music_arena.secret`. On first run, you will be prompted to enter each secret interactively. Values are cached locally in `cache/secrets/` and never committed.
+
+Required secrets:
+- `GCP_BUCKET_SERVICE_ACCOUNT` — Service account JSON (shared with gateway; provide the JSON file path when prompted)
+- `METADATA_BUCKET` — GCP bucket name for battle metadata
+- `AUDIO_BUCKET` — GCP bucket name for audio files
+
+### Individual Pipeline Steps
+
+#### Step 1: Download new battle data from GCP
 
 ```bash
-# 1. Authenticate with GCP (one-time setup, no key files needed)
-gcloud auth application-default login
-
-# 2. Set bucket configuration (ask maintainers for values, never commit these)
-export MUSIC_ARENA_GCP_PROJECT_ID="<project-id>"
-export MUSIC_ARENA_METADATA_BUCKET="<metadata-bucket>"
-export MUSIC_ARENA_AUDIO_BUCKET="<audio-bucket>"
-
-# 3. Download new data (dates are auto-detected)
-ma-leaderboard download
+ma-comp leaderboard download
 ```
-
-> **Security**: GCP authentication uses `gcloud` CLI login — no key files are stored in the repo. The bucket names are passed via environment variables only. All credential-related patterns (`*credentials*`, `*service_account*`, `.env*`) are in `.gitignore`.
 
 - **Start date**: Auto-detected from existing data. If no data exists, defaults to 2025-07-28 (launch date).
 - **End date**: Auto-detected as end of previous month. Override with `--start` / `--end` if needed.
 - Only battles with valid models (in `MODELS_METADATA`) are downloaded. Test/unknown models are skipped.
 - Already downloaded files are automatically skipped (incremental).
 
-Downloaded files are stored in:
-```
-components/leaderboard/data/
-  logs/       # Raw JSON battle logs
-  audio/      # MP3 audio files
-```
-
-This directory is git-ignored and will not be committed.
-
-### Step 2: Preprocess into HuggingFace dataset format
+#### Step 2: Preprocess into HuggingFace dataset format
 
 ```bash
-ma-leaderboard preprocess
+ma-comp leaderboard preprocess
 ```
 
-Output is written to `components/leaderboard/data/dataset/`:
-```
-components/leaderboard/data/dataset/
-  battle_data/{month}/    # Simplified JSON per battle
-  audio_files/{month}/    # MP3 files (non-public models excluded)
-  metadata/{month}.md     # Period summary
-```
+#### Step 3: Push to HuggingFace dataset
 
-### Step 3: Push to HuggingFace dataset
+Preprocessed files are written to `cache/bucket/dataset/` (i.e. `CACHE_DIR/bucket/dataset/`).
 
 ```bash
-cd <your-local-clone-of-music-arena-dataset>
+git clone git@hf.co:datasets/music-arena/music-arena-dataset
+cd music-arena-dataset
+
+# Set up Git LFS for audio files (one-time)
+git lfs install
+git lfs track "audio_files/**/*.mp3"
 
 # Copy the new month's data into the dataset repo
-cp -r <music-arena>/components/leaderboard/data/dataset/battle_data/* battle_data/
-cp -r <music-arena>/components/leaderboard/data/dataset/audio_files/* audio_files/
-cp -r <music-arena>/components/leaderboard/data/dataset/metadata/* metadata/
+export HF_LATEST_TAG=08-2026MAR # update this
+cp -r ~/.cache/music_arena/bucket/dataset/battle_data/$HF_LATEST_TAG ./battle_data/
+cp -r ~/.cache/music_arena/bucket/dataset/audio_files/$HF_LATEST_TAG ./audio_files/
+cp -r ~/.cache/music_arena/bucket/dataset/metadata/$HF_LATEST_TAG.md ./metadata/
 
-# Commit and push (audio files tracked via Git LFS)
+# Commit and push
 git add .
-git commit -m "Add February 2026 data"
+git commit -m "Add $HF_LATEST_TAG data"
 git push
 ```
 
-### Step 3.5: Sanity check (optional but recommended)
+#### Step 3.5: Sanity check (optional but recommended)
 
 ```bash
-ma-leaderboard sanity-check
+ma-comp leaderboard sanity-check
 ```
 
 Compares local log count vs HuggingFace dataset count to verify the push was complete.
 
-### Step 4: Generate updated leaderboard
+#### Step 4: Generate updated leaderboard
 
 ```bash
-# After HuggingFace processes the new data:
-ma-leaderboard leaderboard
+ma-comp leaderboard leaderboard
 ```
 
-Results are written to `results/`:
-```
-results/
-  leaderboards/    # TSV tables (instrumental + vocal)
-  plots/           # PNG scatter plots
-```
-
-### Step 5: Update the website
+#### Step 5: Update the website
 
 ```bash
-ma-leaderboard update-frontend
+ma-comp leaderboard update-frontend
 # Creates components/frontend/ma_frontend/leaderboard/{YYYYMMDD}/
 # Commit and open a PR
 ```
@@ -143,5 +123,5 @@ The monthly update script can be scheduled as a cron job (not enabled by default
 
 ```bash
 crontab -e
-0 0 1 * * /path/to/music-arena/components/leaderboard/ma_leaderboard/monthly_update.sh >> ~/monthly_update.log 2>&1
+0 0 1 * * /path/to/music-arena/components/leaderboard/monthly_update.sh >> ~/monthly_update.log 2>&1
 ```

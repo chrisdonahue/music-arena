@@ -1,12 +1,12 @@
 #!/bin/bash
-# Monthly Music Arena update script
-# Usage: bash monthly_update.sh
+# Monthly Music Arena update script (runs via Docker)
+# Usage: bash components/leaderboard/monthly_update.sh
 # Optional cron: 0 0 1 * * /path/to/monthly_update.sh >> ~/monthly_update.log 2>&1
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MUSIC_ARENA_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+MUSIC_ARENA_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "=========================================="
 echo "Music Arena Monthly Update: $(date)"
@@ -14,26 +14,31 @@ echo "=========================================="
 
 cd "$MUSIC_ARENA_ROOT"
 
-# Activate conda environment
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate MusicArena
+# Helper to run leaderboard commands inside Docker
+run_leaderboard() {
+    ma-comp leaderboard "$@"
+}
 
 # Step 1: Download new data from GCP
 echo -e "\n[Step 1/6] Downloading new data from GCP..."
-ma-leaderboard download
+run_leaderboard download
 
 # Step 2: Preprocess
 echo -e "\n[Step 2/6] Preprocessing into HuggingFace format..."
-ma-leaderboard preprocess
+run_leaderboard preprocess
 
 # Step 3: Push to HuggingFace dataset
 echo -e "\n[Step 3/6] Pushing to HuggingFace..."
-DATASET_DIR="$MUSIC_ARENA_ROOT/components/leaderboard/data/dataset"
+DATASET_DIR="$MUSIC_ARENA_ROOT/cache/bucket/dataset"
 HF_REPO_DIR="$HOME/music-arena-dataset"
 
 if [ -d "$HF_REPO_DIR" ]; then
     cd "$HF_REPO_DIR"
     git pull
+    # Ensure LFS is set up for audio files
+    git lfs install
+    git lfs track "audio_files/**/*.mp3"
+    git add .gitattributes
     cp -r "$DATASET_DIR/battle_data/"* battle_data/ 2>/dev/null || true
     cp -r "$DATASET_DIR/audio_files/"* audio_files/ 2>/dev/null || true
     cp -r "$DATASET_DIR/metadata/"* metadata/ 2>/dev/null || true
@@ -70,16 +75,16 @@ fi
 
 # Step 4: Sanity check
 echo -e "\n[Step 4/6] Sanity check..."
-ma-leaderboard sanity-check
+run_leaderboard sanity-check
 
 # Step 5: Generate leaderboard (clean results first to avoid stale files)
 echo -e "\n[Step 5/6] Generating leaderboard..."
 rm -rf results
-ma-leaderboard leaderboard
+run_leaderboard leaderboard
 
 # Step 6: Update frontend
 echo -e "\n[Step 6/6] Updating frontend..."
-ma-leaderboard update-frontend
+run_leaderboard update-frontend
 
 echo -e "\n=========================================="
 echo "Done! $(date)"

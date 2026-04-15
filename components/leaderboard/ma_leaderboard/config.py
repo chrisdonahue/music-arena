@@ -8,6 +8,8 @@ No GCP credentials or bucket names are stored here.
 import os
 from pathlib import Path
 
+from music_arena.path import SYSTEMS_DIR
+
 # HuggingFace dataset repository (public)
 HF_REPO_ID = os.getenv("MUSIC_ARENA_HF_REPO", "music-arena/music-arena-dataset")
 
@@ -71,9 +73,8 @@ def _load_models_from_registry():
     """
     import yaml
 
-    # Find registry.yaml relative to music-arena root
     registry_paths = [
-        Path(__file__).parent.parent.parent.parent / "systems" / "registry.yaml",
+        SYSTEMS_DIR / "registry.yaml",
         Path(os.getenv("MUSIC_ARENA_REGISTRY", "")) / "registry.yaml",
     ]
 
