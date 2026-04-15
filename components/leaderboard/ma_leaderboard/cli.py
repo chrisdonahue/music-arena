@@ -15,15 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-
-def _get_component_root():
-    """Get the root directory of the leaderboard component."""
-    return Path(__file__).parent.parent
-
-
-def _get_music_arena_root():
-    """Get the root directory of the music-arena project."""
-    return _get_component_root().parent.parent
+from music_arena.path import CACHE_DIR, COMPONENTS_DIR
 
 
 def cmd_leaderboard(args):
@@ -52,7 +44,7 @@ def cmd_leaderboard(args):
 
     if "date" in battles_df.columns:
         try:
-            dt_series = pd.to_datetime(battles_df["date"])
+            dt_series = pd.to_datetime(battles_df["date"], utc=True)
             min_dt = dt_series.min().strftime("%Y-%m-%d")
             max_dt = dt_series.max().strftime("%Y-%m-%d")
             period_display = f"{min_dt} ~ {max_dt}"
@@ -112,7 +104,7 @@ def cmd_leaderboard(args):
         # Look for logo files
         logo_path = None
         qr_path = None
-        for search_dir in [_get_component_root(), _get_music_arena_root()]:
+        for search_dir in [COMPONENTS_DIR / "leaderboard"]:
             candidate = search_dir / "musicarena_logo.png"
             if candidate.exists():
                 logo_path = str(candidate)
@@ -455,11 +447,7 @@ def main():
         help="Source results directory (default: results/)",
     )
     default_frontend_dir = str(
-        _get_music_arena_root()
-        / "components"
-        / "frontend"
-        / "ma_frontend"
-        / "leaderboard"
+        COMPONENTS_DIR / "frontend" / "ma_frontend" / "leaderboard"
     )
     uf_parser.add_argument(
         "--frontend-dir",
@@ -468,8 +456,8 @@ def main():
         help="Frontend leaderboard directory",
     )
 
-    # Default data directories under components/leaderboard/data/
-    default_data_dir = _get_component_root() / "data"
+    # Default data directories under cache/bucket/
+    default_data_dir = CACHE_DIR / "bucket"
     default_logs_dir = str(default_data_dir / "logs")
     default_audio_dir = str(default_data_dir / "audio")
     default_dataset_dir = str(default_data_dir / "dataset")

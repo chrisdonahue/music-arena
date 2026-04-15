@@ -1,9 +1,8 @@
 """Download and parse battle logs from GCP.
 
-Requires GCP authentication and the following environment variables:
-    MUSIC_ARENA_GCP_PROJECT_ID
-    MUSIC_ARENA_METADATA_BUCKET
-    MUSIC_ARENA_AUDIO_BUCKET
+Authenticates via the GCP_BUCKET_SERVICE_ACCOUNT secret (same service
+account JSON used by the gateway component). Bucket names are read
+via music_arena.secret.
 
 Install with: pip install -e "components/leaderboard/[gcp]"
 """
@@ -18,52 +17,42 @@ from tqdm import tqdm
 from .config import MODELS_METADATA
 
 
-def _get_gcp_config():
-    """Read GCP configuration from environment variables."""
-    project_id = os.environ.get("MUSIC_ARENA_GCP_PROJECT_ID")
-    metadata_bucket = os.environ.get("MUSIC_ARENA_METADATA_BUCKET")
-    audio_bucket = os.environ.get("MUSIC_ARENA_AUDIO_BUCKET")
+def _get_gcp_client():
+    """Create a GCP storage client using the shared service account secret."""
+    from google.cloud import storage
+    from music_arena.secret import get_secret, get_secret_json
 
-    missing = []
-    if not project_id:
-        missing.append("MUSIC_ARENA_GCP_PROJECT_ID")
-    if not metadata_bucket:
-        missing.append("MUSIC_ARENA_METADATA_BUCKET")
-    if not audio_bucket:
-        missing.append("MUSIC_ARENA_AUDIO_BUCKET")
+    credentials = get_secret_json("GCP_BUCKET_SERVICE_ACCOUNT")
+    metadata_bucket = get_secret("GCP_METADATA_BUCKET").strip()
+    audio_bucket = get_secret("GCP_AUDIO_BUCKET").strip()
 
-    if missing:
-        raise EnvironmentError(
-            f"Missing required environment variables: {', '.join(missing)}\n"
-            "These are needed for GCP access. Contact the project maintainers."
-        )
-
-    return project_id, metadata_bucket, audio_bucket
+    client = storage.Client.from_service_account_info(credentials)
+    return client, metadata_bucket, audio_bucket
 
 
 def download_filtered_logs_and_audio(
-    logs_dir, audio_dir, start_date=None, end_date=None
+    logs_dir, audio_dir, start_date=None, end_date=None, max_workers=16
 ):
     """Download battle logs and audio from GCP buckets.
 
     Filters by known models and optional date range.
     Skips files already present locally.
+    Downloads logs and audio in parallel using a thread pool.
     """
-    from google.cloud import storage
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from urllib.parse import urlparse
 
-    project_id, metadata_bucket_name, audio_bucket_name = _get_gcp_config()
+    client, metadata_bucket_name, audio_bucket_name = _get_gcp_client()
 
-    print(f"Starting integrated download...")
+    print(f"Starting integrated download (workers={max_workers})...")
     print(f" - Logs will be saved to: '{logs_dir}'")
     print(f" - Audio will be saved to: '{audio_dir}'")
 
     os.makedirs(logs_dir, exist_ok=True)
     os.makedirs(audio_dir, exist_ok=True)
 
-    storage_client = storage.Client(project=project_id)
-    metadata_bucket = storage_client.bucket(metadata_bucket_name)
-    audio_bucket = storage_client.bucket(audio_bucket_name)
+    metadata_bucket = client.bucket(metadata_bucket_name)
+    audio_bucket = client.bucket(audio_bucket_name)
 
     local_log_files = set(os.listdir(logs_dir))
     local_audio_files = set(os.listdir(audio_dir))
@@ -77,26 +66,28 @@ def download_filtered_logs_and_audio(
             if b.time_created and start_date <= b.time_created <= end_date
         ]
 
-    print(f"Found {len(all_blobs)} logs in range. Filtering and downloading...")
+    # Filter to only new JSON blobs
+    new_blobs = [
+        b for b in all_blobs
+        if b.name.endswith(".json")
+        and os.path.basename(b.name) not in local_log_files
+    ]
 
-    downloaded_logs = 0
-    downloaded_audio = 0
-    skipped_unknown = 0
+    print(
+        f"Found {len(all_blobs)} logs in range, "
+        f"{len(all_blobs) - len(new_blobs)} already local, "
+        f"{len(new_blobs)} to download."
+    )
 
-    for blob in tqdm(all_blobs, desc="Processing Logs and Audio"):
-        log_filename = os.path.basename(blob.name)
-        if not log_filename.endswith(".json"):
-            continue
-
+    # Phase 1: Download and filter log blobs in parallel
+    def _download_log(blob):
+        """Download a single log blob. Returns (filename, content, audio_urls) or None."""
         try:
-            if log_filename in local_log_files:
-                continue
-
-            metadata_content = blob.download_as_string()
-            data = json.loads(metadata_content)
+            content = blob.download_as_string()
+            data = json.loads(content)
 
             if not data.get("vote"):
-                continue
+                return None
 
             model_a = (
                 data.get("a_metadata", {})
@@ -115,32 +106,72 @@ def download_filtered_logs_and_audio(
                 and model_a in known_models
                 and model_b in known_models
             ):
+                return "skipped_unknown"
+
+            audio_urls = [data.get("a_audio_url"), data.get("b_audio_url")]
+            return (os.path.basename(blob.name), content, audio_urls)
+        except Exception as e:
+            print(f"\nWarning: Failed to download {blob.name}: {e}")
+            return None
+
+    downloaded_logs = 0
+    skipped_unknown = 0
+    audio_to_download = []  # list of audio filenames to fetch
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_download_log, b): b for b in new_blobs}
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Downloading logs"
+        ):
+            result = future.result()
+            if result is None:
+                continue
+            if result == "skipped_unknown":
                 skipped_unknown += 1
                 continue
 
+            log_filename, content, audio_urls = result
             with open(os.path.join(logs_dir, log_filename), "wb") as f:
-                f.write(metadata_content)
+                f.write(content)
             downloaded_logs += 1
 
-            audio_urls = [data.get("a_audio_url"), data.get("b_audio_url")]
             for url in audio_urls:
                 if not url:
                     continue
-
                 audio_filename = os.path.basename(urlparse(url).path)
-                if not audio_filename:
-                    continue
+                if audio_filename and audio_filename not in local_audio_files:
+                    audio_to_download.append(audio_filename)
+                    local_audio_files.add(audio_filename)
 
-                if audio_filename not in local_audio_files:
-                    audio_blob = audio_bucket.blob(audio_filename)
-                    if audio_blob.exists():
-                        dest_path = os.path.join(audio_dir, audio_filename)
-                        audio_blob.download_to_filename(dest_path)
-                        local_audio_files.add(audio_filename)
-                        downloaded_audio += 1
+    # Phase 2: Download audio files in parallel
+    # Deduplicate (two logs could reference the same audio)
+    audio_to_download = list(dict.fromkeys(audio_to_download))
 
+    def _download_audio(audio_filename):
+        """Download a single audio file. Returns True on success."""
+        try:
+            audio_blob = audio_bucket.blob(audio_filename)
+            if audio_blob.exists():
+                dest_path = os.path.join(audio_dir, audio_filename)
+                audio_blob.download_to_filename(dest_path)
+                return True
         except Exception as e:
-            print(f"\nWarning: Failed to process {blob.name}. Error: {e}")
+            print(f"\nWarning: Failed to download audio {audio_filename}: {e}")
+        return False
+
+    downloaded_audio = 0
+    if audio_to_download:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_download_audio, f): f for f in audio_to_download
+            }
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Downloading audio",
+            ):
+                if future.result():
+                    downloaded_audio += 1
 
     print(f"\nDownload complete.")
     print(f"  Logs downloaded: {downloaded_logs}")
