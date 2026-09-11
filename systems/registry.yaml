@@ -609,8 +609,8 @@ lyria-3-30s:
     home: "https://deepmind.google/models/lyria"
   variants:
     "initial":
-      module_name: "lyria3"
-      class_name: "Lyria3"
+      module_name: "lyria"
+      class_name: "Lyria"
       secrets:
         - "GEMINI_API_KEY"
         - "LYRIA3_30S_API_MODEL_ID"
@@ -618,8 +618,8 @@ lyria-3-30s:
         model_id_secret_name: "LYRIA3_30S_API_MODEL_ID"
         fixed_duration: 30.0
     "260326":
-      module_name: "lyria3"
-      class_name: "Lyria3"
+      module_name: "lyria"
+      class_name: "Lyria"
       secrets:
         - "GEMINI_API_KEY"
         - "LYRIA3_30S_API_MODEL_ID"
@@ -640,8 +640,8 @@ lyria-3-pro-preview:
     home: "https://blog.google/innovation-and-ai/technology/developers-tools/lyria-3-developers/"
   variants:
     "initial":
-      module_name: "lyria3"
-      class_name: "Lyria3"
+      module_name: "lyria"
+      class_name: "Lyria"
       secrets:
         - "GEMINI_API_KEY"
         - "LYRIA3_3M_API_MODEL_ID"
@@ -649,8 +649,8 @@ lyria-3-pro-preview:
         model_id_secret_name: "LYRIA3_3M_API_MODEL_ID"
         fixed_duration: 180.0
     "260326":
-      module_name: "lyria3"
-      class_name: "Lyria3"
+      module_name: "lyria"
+      class_name: "Lyria"
       secrets:
         - "GEMINI_API_KEY"
         - "LYRIA3_3M_API_MODEL_ID"
@@ -658,13 +658,35 @@ lyria-3-pro-preview:
         model_id_secret_name: "LYRIA3_3M_API_MODEL_ID"
         fixed_duration: 180.0
     "260809":
-      module_name: "lyria3"
-      class_name: "Lyria3"
+      module_name: "lyria"
+      class_name: "Lyria"
       secrets:
         - "GEMINI_API_KEY"
         - "LYRIA3_3M_API_MODEL_ID"
       init_kwargs:
         model_id_secret_name: "LYRIA3_3M_API_MODEL_ID"
+        fixed_duration: 180.0
+        timeout: 120.0
+
+lyria-3-5:
+  display_name: "Lyria 3.5"
+  description: "Lyria 3.5 full song generation (a couple of minutes, prompt-controllable)."
+  organization: "Google DeepMind"
+  access: "PROPRIETARY"
+  supports_lyrics: true
+  model_type: "Unspecified"
+  training_data:
+    type: "Unspecified"
+  links:
+    home: "https://ai.google.dev/gemini-api/docs/music-generation"
+  variants:
+    "initial":
+      module_name: "lyria"
+      class_name: "Lyria"
+      secrets:
+        - "GEMINI_API_KEY"
+      init_kwargs:
+        model_id: "lyria-3.5"
         fixed_duration: 180.0
         timeout: 120.0
 

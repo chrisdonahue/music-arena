@@ -18,16 +18,22 @@ from music_arena.system import TextToMusicAPISystem
 _LOGGER = logging.getLogger(__name__)
 
 
-class Lyria3(TextToMusicAPISystem):
+class Lyria(TextToMusicAPISystem):
     def __init__(
         self,
         *args,
-        model_id_secret_name: str = "API_MODEL_ID",
+        model_id: Optional[str] = None,
+        model_id_secret_name: Optional[str] = None,
         fixed_duration: float = 30.0,
         timeout: Optional[float] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        if (model_id is None) == (model_id_secret_name is None):
+            raise ValueError(
+                "Exactly one of model_id or model_id_secret_name must be set."
+            )
+        self._model_id_literal = model_id
         self._model_id_secret_name = model_id_secret_name
         self._fixed_duration = fixed_duration
         self._timeout = timeout
@@ -48,7 +54,14 @@ class Lyria3(TextToMusicAPISystem):
             api_key=get_secret("GEMINI_API_KEY"),
             http_options=http_options,
         )
-        self._model_id = get_secret(self._model_id_secret_name).strip()
+        # Model IDs are public, documented strings (e.g. "lyria-3.5"), not
+        # secrets. `model_id_secret_name` remains for older variants already
+        # wired up that way.
+        self._model_id = (
+            self._model_id_literal
+            if self._model_id_literal is not None
+            else get_secret(self._model_id_secret_name).strip()
+        )
 
     def _release(self):
         if self._client is not None:
@@ -57,7 +70,8 @@ class Lyria3(TextToMusicAPISystem):
         self._model_id = None
 
     def prompt_support(self, prompt: DetailedTextToMusicPrompt) -> PromptSupport:
-        # The Lyria 3 30s model always returns a fixed-length generation.
+        # Some Lyria variants (e.g. the clip model) always return a
+        # fixed-length generation; others treat this as an approximate cap.
         if prompt.duration is not None and prompt.duration > self._fixed_duration:
             return PromptSupport.PARTIAL
         return PromptSupport.SUPPORTED
@@ -69,7 +83,7 @@ class Lyria3(TextToMusicAPISystem):
         assert self._model_id is not None
         timings: list[tuple[str, float]] = []
 
-        _LOGGER.info("Calling Lyria 3 model='%s'", self._model_id)
+        _LOGGER.info("Calling Lyria model='%s'", self._model_id)
         s = time.time()
         timings.append(("call", s))
         text_prompt = prompt.overall_prompt
@@ -100,7 +114,7 @@ class Lyria3(TextToMusicAPISystem):
             audio = audio.crop(duration=min(prompt.duration, self._fixed_duration))
         timings.append(("done", time.time()))
 
-        # Lyria 3 returns text parts containing lyric/timing metadata.
+        # Lyria returns text parts containing lyric/timing metadata.
         lyrics = (
             prompt.lyrics
             if prompt.lyrics is not None
